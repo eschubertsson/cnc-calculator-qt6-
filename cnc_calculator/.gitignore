@@ -1,0 +1,16 @@
+cmake-build-debug/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*_autogen/
+*.moc
+SponfortynningKalkulator
+ValidationTest
+Testing/
+CTestTestfile.cmake
