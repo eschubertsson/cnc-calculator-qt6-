@@ -31,7 +31,7 @@ QLineEdit* MainWindow::createIntInput(const QString &placeholder) {
 
 void MainWindow::setupUi() {
     this->setWindowTitle("Sponfortynning Kalkulator");
-    this->resize(800, 600);
+    this->resize(900, 700);
 
     QWidget *centralWidget = new QWidget(this);
     this->setCentralWidget(centralWidget);
@@ -62,7 +62,6 @@ void MainWindow::setupUi() {
     inputKr = createDoubleInput("Standard 90");
     inputAp = createDoubleInput("f.eks 2.0");
     inputAe = createDoubleInput("f.eks 10.0");
-    inputHex = createDoubleInput("f.eks 0.1");
     inputZ = createIntInput("f.eks 4");
 
     // Defaults
@@ -74,10 +73,33 @@ void MainWindow::setupUi() {
     formLayout->addRow("Inngrepsvinkel (Kr) [°]:", inputKr);
     formLayout->addRow("Kuttdybde (ap) [mm]:", inputAp);
     formLayout->addRow("Kuttbredde (ae) [mm]:", inputAe);
-    formLayout->addRow("Ønsket spontykkelse (hex) [mm]:", inputHex);
     formLayout->addRow("Antall tenner (Z):", inputZ);
 
     inputLayout->addLayout(formLayout);
+
+    // --- Calculation Mode Section ---
+    QGroupBox *modeGroup = new QGroupBox("Beregningsmodus");
+    QVBoxLayout *modeLayout = new QVBoxLayout(modeGroup);
+
+    radioModeHex = new QRadioButton("Beregn Mating (fz) fra Spontykkelse (hex)");
+    radioModeFz = new QRadioButton("Beregn Spontykkelse (hex) fra Mating (fz)");
+    radioModeHex->setChecked(true); // Default
+
+    connect(radioModeHex, &QRadioButton::toggled, this, &MainWindow::updateMode);
+
+    modeLayout->addWidget(radioModeHex);
+    modeLayout->addWidget(radioModeFz);
+
+    // Target Inputs (Moved here for clarity)
+    QFormLayout *targetForm = new QFormLayout();
+    inputHex = createDoubleInput("f.eks 0.1");
+    inputFz = createDoubleInput("f.eks 0.2");
+
+    targetForm->addRow("Ønsket spontykkelse (hex) [mm]:", inputHex);
+    targetForm->addRow("Ønsket mating (fz) [mm/tann]:", inputFz);
+
+    modeLayout->addLayout(targetForm);
+    inputLayout->addWidget(modeGroup);
 
     // Calculate Button
     QPushButton *calcBtn = new QPushButton("Beregn");
@@ -112,7 +134,12 @@ void MainWindow::setupUi() {
 
     createResultRow("Effektiv Diameter (D_cap) [mm]:", valDcap);
     createResultRow("Spindelhastighet (n) [o/min]:", valN);
-    createResultRow("Mating pr. tann (fz) [mm/tann]:", valFz);
+    // Note: hex and fz are now inputs/outputs depending on mode,
+    // but we display the derived values (Vf, Mrr) here.
+    // We could duplicate the calculated hex/fz here, but they are shown in the disabled input fields.
+    // Let's keep them here for clarity if they are results?
+    // Actually, updateMode() handles enabling/disabling.
+
     createResultRow("Bordmating (Vf) [mm/min]:", valVf);
     createResultRow("Sponfjerning (MRR) [cm³/min]:", valMrr);
 
@@ -125,6 +152,24 @@ void MainWindow::setupUi() {
     resultLayout->addWidget(infoLabel);
 
     contentLayout->addWidget(resultGroup, 1);
+
+    updateMode(); // Set initial state
+}
+
+void MainWindow::updateMode() {
+    if (radioModeHex->isChecked()) {
+        // Solve for Fz (Standard)
+        inputHex->setEnabled(true);
+        inputFz->setEnabled(false);
+        inputHex->setStyleSheet("");
+        inputFz->setStyleSheet("background-color: #f0f0f0; color: #555;");
+    } else {
+        // Solve for Hex (Reverse)
+        inputHex->setEnabled(false);
+        inputFz->setEnabled(true);
+        inputHex->setStyleSheet("background-color: #f0f0f0; color: #555;");
+        inputFz->setStyleSheet("");
+    }
 }
 
 void MainWindow::calculate() {
@@ -136,14 +181,27 @@ void MainWindow::calculate() {
     if (inputs.Kr == 0) inputs.Kr = 90.0; // Default safety
     inputs.ap = inputAp->text().replace(',', '.').toDouble();
     inputs.ae = inputAe->text().replace(',', '.').toDouble();
-    inputs.hex = inputHex->text().replace(',', '.').toDouble();
     inputs.Z = inputZ->text().toInt();
+
+    if (radioModeHex->isChecked()) {
+        inputs.mode = CalculationMode::SolveForFz;
+        inputs.hex = inputHex->text().replace(',', '.').toDouble();
+    } else {
+        inputs.mode = CalculationMode::SolveForHex;
+        inputs.fz_input = inputFz->text().replace(',', '.').toDouble();
+    }
 
     CncOutputs outputs = CncCalculator::calculate(inputs);
 
+    // Update the Read-Only field with the result
+    if (radioModeHex->isChecked()) {
+        inputFz->setText(QString::number(outputs.fz, 'f', 4));
+    } else {
+        inputHex->setText(QString::number(outputs.hex, 'f', 4));
+    }
+
     valDcap->setText(QString::number(outputs.D_cap, 'f', 2));
     valN->setText(QString::number(outputs.n, 'f', 0));
-    valFz->setText(QString::number(outputs.fz, 'f', 4));
     valVf->setText(QString::number(outputs.Vf, 'f', 0));
     valMrr->setText(QString::number(outputs.MRR, 'f', 2));
 }
@@ -209,6 +267,11 @@ void MainWindow::applyStyles() {
         }
         QPushButton:pressed {
             background-color: #004b87;
+        }
+        QRadioButton {
+            font-size: 13px;
+            color: #333;
+            padding: 4px;
         }
     )";
     this->setStyleSheet(qss);

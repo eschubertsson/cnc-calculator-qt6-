@@ -7,6 +7,7 @@ class ValidationTest : public QObject {
 private slots:
     void testCaseA();
     void testCaseB();
+    void testReverseCalculation();
 };
 
 void ValidationTest::testCaseA() {
@@ -19,7 +20,8 @@ void ValidationTest::testCaseA() {
     inputs.ic = 12.0;
     inputs.Vc = 100.0;
     inputs.Z = 8;
-    inputs.Kr = 90.0; // Not used but good practice
+    inputs.Kr = 90.0;
+    inputs.mode = CalculationMode::SolveForFz;
 
     CncOutputs outputs = CncCalculator::calculate(inputs);
 
@@ -31,7 +33,6 @@ void ValidationTest::testCaseA() {
 
 void ValidationTest::testCaseB() {
     // Inputs: hex=0.125, Ap=4, Ae=30, D3=80, Vc=2010.5, Z=8
-    // Inferred ic=8
     CncInputs inputs;
     inputs.hex = 0.125;
     inputs.ap = 4.0;
@@ -40,13 +41,38 @@ void ValidationTest::testCaseB() {
     inputs.Vc = 2010.5;
     inputs.Z = 8;
     inputs.ic = 8.0;
+    inputs.mode = CalculationMode::SolveForFz;
 
     CncOutputs outputs = CncCalculator::calculate(inputs);
 
     // Expected: Fz=0.129, Rpm=7999, Vf=8261
     QVERIFY(qAbs(outputs.fz - 0.129) < 0.001);
-    QVERIFY(qAbs(outputs.n - 7999.0) < 5.0); // 7999.5 vs 7999
+    QVERIFY(qAbs(outputs.n - 7999.0) < 5.0);
     QVERIFY(qAbs(outputs.Vf - 8261.0) < 5.0);
+}
+
+void ValidationTest::testReverseCalculation() {
+    // Reverse of Case A
+    // Input fz=0.3618, Expect hex ~= 0.2
+    CncInputs inputs;
+    inputs.fz_input = 0.361814;
+    inputs.ap = 1.0;
+    inputs.ae = 100.0;
+    inputs.Dc = 112.0;
+    inputs.ic = 12.0;
+    inputs.Vc = 100.0;
+    inputs.Z = 8;
+    inputs.mode = CalculationMode::SolveForHex;
+
+    CncOutputs outputs = CncCalculator::calculate(inputs);
+
+    QVERIFY(qAbs(outputs.hex - 0.2) < 0.001);
+
+    // Verify Vf is still calculated correctly
+    // Vf = n * Z * fz
+    // n = 298.5
+    // Vf = 298.5 * 8 * 0.3618 = 864
+    QVERIFY(qAbs(outputs.Vf - 864.0) < 1.0);
 }
 
 QTEST_MAIN(ValidationTest)
