@@ -13,19 +13,32 @@ double CncCalculator::toRadians(double degrees) {
 CncOutputs CncCalculator::calculate(const CncInputs& inputs) {
     CncOutputs outputs;
 
+    // Guard against invalid inputs that could cause early crashes or weird math
+    // Assuming 0 values for inputs like Dc, ap, ae might be valid in "not set yet" UI state,
+    // but mathematically we should be careful.
+
     // Step A: D_cap Logic
     if (inputs.ic > 0) {
         // Round Insert
         double radius = inputs.ic / 2.0;
+        // Avoid sqrt of negative number if ic - 2*ap < 0 (meaning ap > radius)
+        // But we guard with if ap <= radius.
         if (inputs.ap <= radius) {
-             outputs.D_cap = (inputs.Dc - inputs.ic) + std::sqrt(std::pow(inputs.ic, 2) - std::pow(inputs.ic - 2 * inputs.ap, 2));
+             double term = std::pow(inputs.ic, 2) - std::pow(inputs.ic - 2 * inputs.ap, 2);
+             if (term < 0) term = 0; // Safety
+             outputs.D_cap = (inputs.Dc - inputs.ic) + std::sqrt(term);
         } else {
              outputs.D_cap = inputs.Dc;
         }
     }
     else if (inputs.Kr > 0 && inputs.Kr < 90) {
         // Angled Cutter
-        outputs.D_cap = inputs.Dc + ((2 * inputs.ap) / std::tan(toRadians(inputs.Kr)));
+        double tan_Kr = std::tan(toRadians(inputs.Kr));
+        if (std::abs(tan_Kr) > 1e-6) {
+             outputs.D_cap = inputs.Dc + ((2 * inputs.ap) / tan_Kr);
+        } else {
+            outputs.D_cap = inputs.Dc;
+        }
     }
     else {
         // Standard
@@ -41,7 +54,7 @@ CncOutputs CncCalculator::calculate(const CncInputs& inputs) {
         outputs.fz = inputs.hex * K;
     } else {
         outputs.fz = inputs.fz_input;
-        if (K > 0) {
+        if (K > 1e-9) { // Avoid division by zero
             outputs.hex = inputs.fz_input / K;
         } else {
             outputs.hex = 0.0;
@@ -49,7 +62,7 @@ CncOutputs CncCalculator::calculate(const CncInputs& inputs) {
     }
 
     // Step B: Calculate Spindle Speed (n)
-    if (outputs.D_cap > 0) {
+    if (outputs.D_cap > 1e-9) { // Avoid division by zero
         outputs.n = (inputs.Vc * 1000.0) / (M_PI * outputs.D_cap);
     } else {
         outputs.n = 0;
@@ -60,13 +73,11 @@ CncOutputs CncCalculator::calculate(const CncInputs& inputs) {
 
     // Feed Rate Compensation
     outputs.Vf_corrected = outputs.Vf; // Default
-    if (inputs.compMode == CompensationMode::InternalHole && inputs.contourDiameter > 0) {
+    if (inputs.compMode == CompensationMode::InternalHole && inputs.contourDiameter > 1e-9) {
         // Internal Hole (Reduce Feed)
-        // Vf_corrected = Vf * (Hole_Diameter - Dc) / Hole_Diameter
         outputs.Vf_corrected = outputs.Vf * (inputs.contourDiameter - inputs.Dc) / inputs.contourDiameter;
-    } else if (inputs.compMode == CompensationMode::ExternalBoss && inputs.contourDiameter > 0) {
+    } else if (inputs.compMode == CompensationMode::ExternalBoss && inputs.contourDiameter > 1e-9) {
         // External Boss (Increase Feed)
-        // Vf_corrected = Vf * (Boss_Diameter + Dc) / Boss_Diameter
         outputs.Vf_corrected = outputs.Vf * (inputs.contourDiameter + inputs.Dc) / inputs.contourDiameter;
     }
 
@@ -80,9 +91,6 @@ CncOutputs CncCalculator::calculate(const CncInputs& inputs) {
 
 double CncCalculator::calculate_thinning_factor(const CncInputs& inputs, double D_cap) {
     // Calculates K where fz = hex * K
-    // We reuse the logic by assuming hex = 1.0 and seeing what fz we get.
-    // However, we must implement the logic cleanly.
-
     double factor = 1.0;
 
     if (inputs.ic > 0) {
@@ -90,17 +98,22 @@ double CncCalculator::calculate_thinning_factor(const CncInputs& inputs, double 
         double radius = inputs.ic / 2.0;
         if (inputs.ap <= radius) {
             // Shallow
-            double chord_height_ap = std::sqrt(inputs.ap * inputs.ic - std::pow(inputs.ap, 2));
+            double term_ap = inputs.ap * inputs.ic - std::pow(inputs.ap, 2);
+            if (term_ap < 0) term_ap = 0;
+            double chord_height_ap = std::sqrt(term_ap);
 
             if (((inputs.ae + 0.01) * 2) <= D_cap) {
                 // Double Thinning
-                double chord_height_ae = std::sqrt(D_cap * inputs.ae - std::pow(inputs.ae, 2));
-                if (chord_height_ap > 0 && chord_height_ae > 0) {
+                double term_ae = D_cap * inputs.ae - std::pow(inputs.ae, 2);
+                if (term_ae < 0) term_ae = 0;
+                double chord_height_ae = std::sqrt(term_ae);
+
+                if (chord_height_ap > 1e-9 && chord_height_ae > 1e-9) {
                     factor = (inputs.ic * D_cap) / (4 * chord_height_ap * chord_height_ae);
                 }
             } else {
                 // Shallow Only
-                if (chord_height_ap > 0) {
+                if (chord_height_ap > 1e-9) {
                     factor = inputs.ic / (2 * chord_height_ap);
                 }
             }
@@ -108,14 +121,23 @@ double CncCalculator::calculate_thinning_factor(const CncInputs& inputs, double 
             // Deep
             if (((inputs.ae + 0.01) * 2) <= D_cap) {
                 // Deep + Narrow
-                double chord_height_radius = std::sqrt(radius * inputs.ic - std::pow(radius, 2)); // == radius
-                double chord_height_ae = std::sqrt(D_cap * inputs.ae - std::pow(inputs.ae, 2));
-                if (chord_height_radius > 0 && chord_height_ae > 0) {
+                double term_radius = radius * inputs.ic - std::pow(radius, 2);
+                if (term_radius < 0) term_radius = 0;
+                double chord_height_radius = std::sqrt(term_radius);
+
+                double term_ae = D_cap * inputs.ae - std::pow(inputs.ae, 2);
+                if (term_ae < 0) term_ae = 0;
+                double chord_height_ae = std::sqrt(term_ae);
+
+                if (chord_height_radius > 1e-9 && chord_height_ae > 1e-9) {
                     factor = (inputs.ic * D_cap) / (4 * chord_height_radius * chord_height_ae);
                 }
             } else {
-                 double chord_height_radius = std::sqrt(radius * inputs.ic - std::pow(radius, 2));
-                 if (chord_height_radius > 0) {
+                 double term_radius = radius * inputs.ic - std::pow(radius, 2);
+                 if (term_radius < 0) term_radius = 0;
+                 double chord_height_radius = std::sqrt(term_radius);
+
+                 if (chord_height_radius > 1e-9) {
                      factor = inputs.ic / (2 * chord_height_radius);
                  }
             }
@@ -126,14 +148,17 @@ double CncCalculator::calculate_thinning_factor(const CncInputs& inputs, double 
         double Kr_rad = toRadians(inputs.Kr);
         if (inputs.ae < (D_cap / 2.0)) {
             // Radial
-             double denominator = 2 * std::sin(Kr_rad) * std::sqrt((D_cap * inputs.ae) - std::pow(inputs.ae, 2));
-             if (denominator > 0) {
+             double term_ae = (D_cap * inputs.ae) - std::pow(inputs.ae, 2);
+             if (term_ae < 0) term_ae = 0;
+             double denominator = 2 * std::sin(Kr_rad) * std::sqrt(term_ae);
+
+             if (denominator > 1e-9) {
                  factor = D_cap / denominator;
              }
         } else {
             // Lead Angle Only
              double sin_Kr = std::sin(Kr_rad);
-             if (sin_Kr > 0) {
+             if (sin_Kr > 1e-9) {
                  factor = 1.0 / sin_Kr;
              }
         }
@@ -141,7 +166,7 @@ double CncCalculator::calculate_thinning_factor(const CncInputs& inputs, double 
     else {
         // Standard Mill Logic
         if (inputs.ae <= (inputs.Dc / 2.0)) {
-             if (inputs.Dc > 0 && inputs.ae > 0) {
+             if (inputs.Dc > 1e-9 && inputs.ae > 1e-9) {
                  factor = 1.0 / std::sqrt(inputs.ae / inputs.Dc);
              }
         }

@@ -9,6 +9,8 @@ private slots:
     void testCaseB();
     void testReverseCalculation();
     void testFeedCompensation();
+    void testEmptyInputs();
+    void testZeroInputs();
 };
 
 void ValidationTest::testCaseA() {
@@ -71,37 +73,51 @@ void ValidationTest::testReverseCalculation() {
 }
 
 void ValidationTest::testFeedCompensation() {
-    // Setup a simple case: Vf = 1000
-    // Dc = 10, Hole = 20.
-    // Factor = (20 - 10) / 20 = 0.5
-    // Expect Vf_corrected = 500
-
     CncInputs inputs;
     inputs.Vc = 100;
     inputs.Dc = 10.0;
     inputs.Z = 1;
     inputs.mode = CalculationMode::SolveForHex;
-    inputs.fz_input = 1.0; // To make math easy: n*1*1 = Vf. n=(100*1000)/(pi*10) = 3183. Vf=3183.
-
-    // Let's force a simpler known Vf via standard inputs if possible, or just check ratio.
-    // Vf = n * Z * fz
-
+    inputs.fz_input = 1.0;
     inputs.compMode = CompensationMode::InternalHole;
     inputs.contourDiameter = 20.0;
 
     CncOutputs outputs = CncCalculator::calculate(inputs);
 
-    // Vf = 3183.1
-    // Vf_corr = 3183.1 * (20-10)/20 = 1591.55
     QVERIFY(qAbs(outputs.Vf_corrected - (outputs.Vf * 0.5)) < 0.1);
 
-    // Test External Boss
-    // Boss = 20. Dc = 10.
-    // Factor = (20 + 10) / 20 = 1.5
     inputs.compMode = CompensationMode::ExternalBoss;
     outputs = CncCalculator::calculate(inputs);
 
     QVERIFY(qAbs(outputs.Vf_corrected - (outputs.Vf * 1.5)) < 0.1);
+}
+
+void ValidationTest::testEmptyInputs() {
+    // Verify that calculating with default (0) inputs does not crash
+    CncInputs inputs; // All defaults are 0
+    CncOutputs outputs = CncCalculator::calculate(inputs);
+
+    // Check results are safe (0 or NaN handled)
+    QVERIFY(outputs.n == 0.0);
+    QVERIFY(outputs.Vf == 0.0);
+    QVERIFY(outputs.Vf_corrected == 0.0);
+}
+
+void ValidationTest::testZeroInputs() {
+    // Specifically test potential division by zero scenarios
+    CncInputs inputs;
+    inputs.Vc = 100;
+    inputs.Dc = 0.0; // Bad Dc
+    inputs.ap = 0.0;
+    inputs.ae = 0.0;
+    inputs.Z = 0;
+
+    // Compensation with 0 diameter
+    inputs.compMode = CompensationMode::InternalHole;
+    inputs.contourDiameter = 0.0; // Crash risk!
+
+    CncOutputs outputs = CncCalculator::calculate(inputs);
+    QVERIFY(outputs.Vf_corrected == 0.0); // Should be 0 and not crash
 }
 
 QTEST_MAIN(ValidationTest)
