@@ -1,0 +1,42 @@
+name: Build Windows EXE
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.6.0' # Eller den version du föredrar
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw'
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cd build
+          cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Project
+        run: |
+          cd build
+          cmake --build .
+
+      - name: Package (windeployqt)
+        run: |
+          # Detta steg kopierar alla nödvändiga .dll-filer så att EXE-filen går att starta
+          cd build
+          windeployqt SponfortynningKalkulator.exe
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SponfortynningKalkulator-Windows
+          path: build/
