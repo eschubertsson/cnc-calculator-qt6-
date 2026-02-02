@@ -14,27 +14,27 @@ jobs:
         uses: jurplel/install-qt-action@v3
         with:
           version: '6.6.0'
-          arch: 'win64_mingw' # Vi använder MinGW 64-bit
-
-      - name: Set up MinGW
-        uses: egor-tensin/setup-mingw@v2
-        with:
-          platform: x64
+          arch: 'win64_mingw'
 
       - name: Configure CMake
+        shell: bash
         run: |
-          cmake -S . -B build `
-            -G "MinGW Makefiles" `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_CXX_COMPILER=g++
+          # Vi lägger till den inbyggda MinGW i PATH manuellt
+          export PATH="/c/ProgramData/chocolatey/bin:/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
+          cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
 
       - name: Build Project
-        run: cmake --build build --config Release
+        shell: bash
+        run: |
+          export PATH="/c/ProgramData/chocolatey/bin:/c/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin:$PATH"
+          cmake --build build --config Release
 
       - name: Package (windeployqt)
+        shell: pwsh
         run: |
-          # Vi kör windeployqt för att få med alla bibliotek (.dll)
-          windeployqt build/SponfortynningKalkulator.exe
+          # Hitta windeployqt (det installeras av Qt-action) och kör det
+          $qtPath = "${{ env.Qt6_DIR }}/bin/windeployqt.exe"
+          & $qtPath build/SponfortynningKalkulator.exe
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
