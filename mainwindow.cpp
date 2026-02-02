@@ -8,7 +8,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     applyStyles();
 
     // Initial Calculate to show zeros
-    calculate();
+    // Warning: On Windows, calling calculate() immediately might trigger layout issues if setup isn't fully propagated,
+    // though usually fine in constructor.
+    // calculate();
+    // Optimization: Let the user calculate manually or wait for show().
+    // But to populate initial "0" values, we can manually set text or just call it.
+    // Let's rely on default labels "-" until Calculated.
 }
 
 MainWindow::~MainWindow() {}
@@ -130,6 +135,13 @@ void MainWindow::setupUi() {
     QGroupBox *resultGroup = new QGroupBox("Resultater");
     QVBoxLayout *resultLayout = new QVBoxLayout(resultGroup);
 
+    // Use pointers to members!
+    // The previous lambda captured valDcap etc, but we must ensure we assign TO the member variable.
+    // The previous code: auto createResultRow = [resultLayout](..., QLabel *&valLabel) ...
+    // And called as: createResultRow(..., valDcap);
+    // Since valDcap is passed by reference to pointer (*&), the 'new QLabel' inside lambda assigns to valDcap.
+    // This looks correct C++.
+
     auto createResultRow = [resultLayout](const QString &label, QLabel *&valLabel, bool bold = false) {
         QHBoxLayout *row = new QHBoxLayout();
         QLabel *lbl = new QLabel(label);
@@ -185,23 +197,47 @@ void MainWindow::updateMode() {
 }
 
 void MainWindow::calculate() {
+    // Safety Checks for Pointers
+    if (!inputVc || !inputDc || !inputIc || !inputKr || !inputAp || !inputAe || !inputZ || !inputHex || !inputFz || !comboCompMode || !inputContourDiam) return;
+    if (!valDcap || !valN || !valVf || !valVfCorrected || !valMrr) return;
+
     CncInputs inputs;
-    inputs.Vc = inputVc->text().replace(',', '.').toDouble();
-    inputs.Dc = inputDc->text().replace(',', '.').toDouble();
-    inputs.ic = inputIc->text().replace(',', '.').toDouble();
-    inputs.Kr = inputKr->text().replace(',', '.').toDouble();
+
+    // Robust parsing
+    // On Windows, QDoubleValidator might allow comma inputs but toDouble() expects dots in C locale.
+    // Replace comma with dot is standard practice.
+    // Also guard against empty strings.
+
+    auto safeDouble = [](QLineEdit *le) -> double {
+        QString txt = le->text().replace(',', '.');
+        if (txt.isEmpty()) return 0.0;
+        bool ok;
+        double val = txt.toDouble(&ok);
+        return ok ? val : 0.0;
+    };
+
+    auto safeInt = [](QLineEdit *le) -> int {
+        QString txt = le->text();
+        if (txt.isEmpty()) return 0;
+        return txt.toInt();
+    };
+
+    inputs.Vc = safeDouble(inputVc);
+    inputs.Dc = safeDouble(inputDc);
+    inputs.ic = safeDouble(inputIc);
+    inputs.Kr = safeDouble(inputKr);
     if (inputs.Kr == 0) inputs.Kr = 90.0; // Default safety
-    inputs.ap = inputAp->text().replace(',', '.').toDouble();
-    inputs.ae = inputAe->text().replace(',', '.').toDouble();
-    inputs.Z = inputZ->text().toInt();
+    inputs.ap = safeDouble(inputAp);
+    inputs.ae = safeDouble(inputAe);
+    inputs.Z = safeInt(inputZ);
 
     // Mode
     if (radioModeHex->isChecked()) {
         inputs.mode = CalculationMode::SolveForFz;
-        inputs.hex = inputHex->text().replace(',', '.').toDouble();
+        inputs.hex = safeDouble(inputHex);
     } else {
         inputs.mode = CalculationMode::SolveForHex;
-        inputs.fz_input = inputFz->text().replace(',', '.').toDouble();
+        inputs.fz_input = safeDouble(inputFz);
     }
 
     // Compensation
@@ -210,7 +246,7 @@ void MainWindow::calculate() {
     else if (compIndex == 2) inputs.compMode = CompensationMode::ExternalBoss;
     else inputs.compMode = CompensationMode::None;
 
-    inputs.contourDiameter = inputContourDiam->text().replace(',', '.').toDouble();
+    inputs.contourDiameter = safeDouble(inputContourDiam);
 
     CncOutputs outputs = CncCalculator::calculate(inputs);
 
