@@ -1,6 +1,6 @@
 name: Build Windows EXE
 
-on: [push, pull_request]
+on: [push, workflow_dispatch]
 
 jobs:
   build:
@@ -13,27 +13,28 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v3
         with:
-          version: '6.6.0' # Eller den version du föredrar
-          host: 'windows'
-          target: 'desktop'
-          arch: 'win64_mingw'
+          version: '6.6.0'
+          arch: 'win64_mingw' # Vi använder MinGW 64-bit
+
+      - name: Set up MinGW
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
 
       - name: Configure CMake
         run: |
-          mkdir build
-          cd build
-          cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build `
+            -G "MinGW Makefiles" `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_CXX_COMPILER=g++
 
       - name: Build Project
-        run: |
-          cd build
-          cmake --build .
+        run: cmake --build build --config Release
 
       - name: Package (windeployqt)
         run: |
-          # Detta steg kopierar alla nödvändiga .dll-filer så att EXE-filen går att starta
-          cd build
-          windeployqt SponfortynningKalkulator.exe
+          # Vi kör windeployqt för att få med alla bibliotek (.dll)
+          windeployqt build/SponfortynningKalkulator.exe
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
